@@ -1,0 +1,62 @@
+Roland SCP-55 PCMCIA Sound Card - CIS (Card Information Structure)
+=================================================================
+Read live off the card in socket 0 of an IBM PC110, over COMrade, on 2026-07-02.
+Card = "Roland" / "PCMCIA Sound Card", MANFID 0xC00C / 0x0001.
+
+NOTE ON THE RAW DUMP
+--------------------
+Attribute memory was mapped at host 0xD0000 (PCIC mem window 0, REG bit set).
+Every CIS byte appears DOUBLED in the raw host dump (01 01 03 03 ...) because of
+how this card's attribute space aliases onto consecutive host bytes; the real
+tuple stream is every-other byte. The listing below is already de-duplicated.
+
+DECODED TUPLES
+--------------
+0x01 CISTPL_DEVICE        link 3   : D9 00 FF
+0x17 CISTPL_DEVICE_A      link 4   : 1F 3A 00 FF          (attribute-memory device)
+0x15 CISTPL_VERS_1        link 28  : 04 01 "Roland" 00 "PCMCIA Sound Card" 00 FF
+0x1A CISTPL_CONFIG        link 5   : 01 14 00 04 03
+        TPCC_SZ   = 0x01  -> RADR field 2 bytes, RMSK 1 byte
+        TPCC_LAST = 0x14  -> last config index = 20
+        TPCC_RADR = 0x0400 -> config-register base = ATTRIBUTE address 0x400
+        TPCC_RMSK = 0x03  -> config registers 0 (COR) and 1 (CCSR) present
+0x1B CISTPL_CFTABLE_ENTRY x20  (indices 1..0x14)
+
+Config entry summary (I/O base options; all decode 16 addr lines, 8-bit, MWAIT):
+  index 1  (DEFAULT): I/O 0x330-0x33B  + gameport 0x201  IRQ mask {5,7,9,10,11,12}
+  index 2 :          I/O 0x370-0x37B  + 0x201
+  index 3 :          I/O 0x3B0-0x3BB  + 0x201
+  index 4 :          I/O 0x3F0-0x3FB  + 0x201
+  index 5 :          I/O 0x1330       + 0x201
+  index 6 :          I/O 0x1370       + 0x201
+  index 7 :          I/O 0x13B0       + 0x201
+  index 8 :          I/O 0x13F0       + 0x201
+  index 9..12:       0x330/0x370/... variants (second small window)
+  index 13 (DEFAULT):I/O 0xE0D0 group (wide-decode)  IRQ mask {3,5,6,12,13}
+  index 14..0x14:    more 0xE0xx wide-decode alternates
+  (gameport at 0x201; NO DMA tuple present anywhere)
+
+0x20 CISTPL_MANFID        link 4   : 0C C0 01 00
+        manufacturer = 0xC00C (Roland),  card = 0x0001
+0x21 CISTPL_FUNCID        link 2   : 02 01
+        function 0x02, init flags 0x01 (POST)
+0xFF  end of CIS
+
+CONFIRMED BY ROLAND'S OWN WIN95 INF (C:\SOUNDDRV\SCP55\SCP95A.INF)
+-----------------------------------------------------------------
+  Device ID : PCMCIA\ROLAND-PCMCIA_SOUND_CARD-D11B
+  FactDef   : IOConfig=330-33B, IOConfig=201, IRQConfig=5, DMAConfig=(empty)
+  => matches the CIS default (index 1) exactly, and confirms NO DMA.
+
+RAW HOST DUMPS (doubled bytes, host 0xD0000..)
+----------------------------------------------
+0xD0000: 01 01 03 03 D9 D9 00 00 FF FF 17 17 04 04 1F 1F
+0xD0010: 3A 3A 00 00 FF FF 15 15 1C 1C 04 04 01 01 52 52   ("R")
+0xD0020: 6F 6F 6C 6C 61 61 6E 6E 64 64 00 00 50 50 43 43   ("olan d" "PC")
+0xD0030: 4D 4D 43 43 49 49 41 41 20 20 53 53 6F 6F 75 75   ("MCIA Sou")
+0xD0040: 6E 6E 64 64 20 20 43 43 61 61 72 72 64 64 00 00   ("nd Card")
+0xD0050: FF FF 1A 1A 05 05 01 01 14 14 00 00 04 04 03 03   (CONFIG)
+0xD0060: 1B 1B 0F 0F C1 C1 81 81 98 98 B0 B0 61 61 30 30   (CFTABLE idx1)
+  ... entries continue through 0xD0250 ...
+0xD0250: FC FC 00 00 20 20 04 04 0C 0C C0 C0 01 01 00 00   (MANFID C00C/0001)
+0xD0260: 21 21 02 02 02 02 01 01 14 14 00 00 FF FF FF FF   (FUNCID, end)

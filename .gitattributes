@@ -1,0 +1,7 @@
+*.bat text eol=crlf
+*.BAT text eol=crlf
+*.c   text eol=crlf
+*.h   text eol=crlf
+*.txt text eol=crlf
+*.exe binary
+*.EXE binary
