@@ -38,13 +38,13 @@
 ;    ships no Roland content.  /MIDI=file fires any Standard MIDI File
 ;    once (SysEx + channel messages, the file's own pacing, stuck notes
 ;    cleared first).  /SYSEX=hex sends a raw message from the command
-;    line.  File/SysEx sends run transiently after the enable; /RESET and
-;    the /T test note are resident-safe and also run on a CS hot-plug.
+;    line.  File/SysEx sends run transiently after the enable; /RESET is
+;    resident-safe and also runs on a CS hot-plug.
 ;
 ;  Usage:
 ;    SCP55GO [/PCIC|/CS|/OB] [/MPU=330] [/I=5] [/LINE[=0..8]] [/RESET]
-;         [/MT32] [/MIDI=file] [/SYSEX=hex] [/T[ONE]] [/S=n] [/W=D000]
-;         [/F[ORCE]] [/OFF]
+;         [/MT32] [/MIDI=file] [/SYSEX=hex] [/S=n] [/W=D000]
+;         [/F[ORCE]] [/OFF] [/?]
 ;
 ;    /MPU=hex  MPU-401 base: 330 (default) / 370 / 3B0 / 3F0 (picks the
 ;              matching COR index; the codec follows at base+8)
@@ -57,7 +57,6 @@
 ;    /MT32     MT-32 emulation mode via MT32EMUL.MID in the current dir
 ;    /MIDI=f   fire any Standard MIDI File once (synth setup files)
 ;    /SYSEX=h  send raw MIDI/SysEx hex bytes (non-hex chars ignored)
-;    /TONE     play a short GM test note after enabling
 ;    /S=dec    socket (PCIC 0-7, OB 1-2, CS: probe only this socket)
 ;    /W=hex    attr-window segment for the CIS/COR access (PCIC; def D000)
 ;    /FORCE    configure without the CIS identity check (needs /S)
@@ -88,7 +87,14 @@ SGVER   equ 0200h
 
 TDMAX   equ 40h                       ; CS tuple-data buffer size
 VBMAX   equ 40h                       ; VERS_1 capture buffer size
-CISLEN  equ 256                       ; dense CIS bytes pulled per probe
+CISLEN  equ 1024                      ; dense CIS bytes pulled per probe.
+                                      ; Generous on purpose: the SCP-55 packs
+                                      ; ~20 CFTABLE_ENTRY tuples BEFORE its
+                                      ; MANFID, which lands at dense offset
+                                      ; 298 - a 256-byte pull missed it and
+                                      ; the card read as "not present".
+                                      ; cisbuf is trailing BSS, so this costs
+                                      ; no file or resident bytes.
 SMFMAX  equ 16384                     ; /MIDI file buffer
 SYXMAX  equ 128                       ; /SYSEX byte buffer
 FNMAX   equ 80                        ; /MIDI filename buffer
@@ -132,7 +138,6 @@ o_mpu    dw 0330h                     ; MPU-401 base (codec at +8)
 o_irq    db 5                         ; 0 = none (MPU output needs no IRQ)
 o_sock   db 0FFh                      ; FFh = auto
 o_line   db 0FFh                      ; line-in gain 0..8; FFh = off
-o_tone   db 0                         ; /T: GM test note after enabling
 o_force  db 0
 o_off    db 0
 o_reset  db 0                         ; /RESET: send the GS Reset SysEx
@@ -722,9 +727,9 @@ cs_reconfig:
 ;  from a cold codec - so the un-mute is write-verified and retried once
 ;  with millisecond pacing.  The GS Sound Canvas reaches the output via the
 ;  codec's Aux inputs, so Aux1/Aux2 are UN-muted here (unlike our other
-;  cards).  Then the MPU-401 UART is put in UART mode (0FEh ACK judged).
+;  cards).  Then the MPU-401 UART enters UART mode (0FEh ACK judged).
 ;
-;  in:  [o_mpu], [o_line], [o_tone], [o_reset]
+;  in:  [o_mpu], [o_line], [o_reset]
 ;  out: [r_codec], [r_cid], [r_line], [r_mpu]
 ;==========================================================================
 chip_init:
@@ -759,14 +764,10 @@ chip_init:
         cmp  byte [r_mpu], 0
         je   .done
         cmp  byte [o_reset], 0        ; /RESET: standard GS Reset SysEx
-        je   .norst
+        je   .done
         mov  si, gs_reset
         mov  cx, GSRLEN
         call send_raw
-.norst:
-        cmp  byte [o_tone], 0         ; /T: short GM test note
-        je   .done
-        call midi_note
 .done:
         pop  si
         pop  dx
@@ -776,7 +777,10 @@ chip_init:
         ret
 
 ; ---- cc_unmute: DAC L/R at 0 dB; Aux1/Aux2 UN-muted at 0 dB (the synth
-;      reaches the output through them) -----------------------------------
+;      reaches the output through them).  The CS4231 aux gain field is
+;      inverted (08h = 0 dB, 00h = max +12 dB, 1.5 dB/step); tried louder
+;      defaults on headphones (2026-07-20) and 0 dB was the keeper. -------
+AUXGAIN equ 08h                       ; 0 dB
 cc_unmute:
         push ax
         mov  al, 06h                  ; L DAC out: unmute, 0 dB
@@ -786,33 +790,40 @@ cc_unmute:
         xor  ah, ah
         call ccput
         mov  al, 02h                  ; L/R Aux1: unmute, 0 dB
-        mov  ah, 08h
+        mov  ah, AUXGAIN
         call ccput
         mov  al, 03h
-        mov  ah, 08h
+        mov  ah, AUXGAIN
         call ccput
         mov  al, 04h                  ; L/R Aux2: unmute, 0 dB
-        mov  ah, 08h
+        mov  ah, AUXGAIN
         call ccput
         mov  al, 05h
-        mov  ah, 08h
+        mov  ah, AUXGAIN
         call ccput
         pop  ax
         ret
 
-; ---- cc_verify: read back a reg we just wrote.  CF clear = it landed. ---
+; ---- cc_verify: read back a reg we just wrote.  CF clear = it landed.
+;      Belt and braces against a floating bus: the chip-ID nibble
+;      (I12 = xAh) is required along with the Aux readback. ---------------
 cc_verify:
         push ax
         mov  al, 02h
         call ccget
-        and  al, 9Fh
-        cmp  al, 08h
-        je   .ok
+        and  al, 9Fh                  ; unmuted at AUXGAIN
+        cmp  al, AUXGAIN
+        jne  .bad
+        mov  al, 0Ch                  ; I12 chip ID: low nibble Ah
+        call ccget
+        and  al, 0Fh
+        cmp  al, 0Ah
+        jne  .bad
         pop  ax
-        stc
-        ret
-.ok:    pop  ax
         clc
+        ret
+.bad:   pop  ax
+        stc
         ret
 
 ; ---- cc_line: line-in pass-through.  The Line input regs I18/I19 exist
@@ -1126,30 +1137,6 @@ send_raw:
         loop .l
         pop  si
         pop  cx
-        pop  ax
-        ret
-
-; ---- midi_note: short GM test note (C4 on channel 1, piano) -------------
-midi_note:
-        push ax
-        mov  al, 0C0h                 ; program change ch 1
-        call midi_out
-        xor  al, al                   ; Acoustic Grand
-        call midi_out
-        mov  al, 90h                  ; note on
-        call midi_out
-        mov  al, 3Ch                  ; C4
-        call midi_out
-        mov  al, 64h                  ; velocity 100
-        call midi_out
-        mov  ax, 400
-        call ms_delay
-        mov  al, 90h                  ; note off (vel 0)
-        call midi_out
-        mov  al, 3Ch
-        call midi_out
-        xor  al, al
-        call midi_out
         pop  ax
         ret
 
@@ -2210,7 +2197,13 @@ pc_mode:
         call prstr
         mov  al, [sock]
         call prdec99
+        ; a CIS was read but held no MANFID tuple (dead/exotic CIS) - say
+        ; so instead of the misleading "no card present"
         mov  si, m_nocards
+        cmp  byte [sawunk], 0
+        je   .norc2
+        mov  si, m_nomanf
+.norc2:
         call prstr
         int  20h
 .scan:
@@ -3040,13 +3033,6 @@ report:
         mov  si, m_gsreset
         call prstr
 .nrst:
-        cmp  byte [o_tone], 0
-        je   .nbp
-        cmp  byte [r_mpu], 0
-        je   .nbp
-        mov  si, m_toned
-        call prstr
-.nbp:
         ret
 
 ;==========================================================================
@@ -3429,6 +3415,8 @@ parse_args:
         ret
 .sw:
         lodsb
+        cmp  al, '?'                  ; /? help (before the case fold -
+        je   .help                    ;  0DFh AND would mangle it)
         and  al, 0DFh
         cmp  al, 'P'
         je   .p
@@ -3446,8 +3434,6 @@ parse_args:
         je   .l
         cmp  al, 'R'
         je   .r
-        cmp  al, 'T'
-        je   .t
         cmp  al, 'F'
         je   .f
         cmp  al, 'W'
@@ -3611,10 +3597,6 @@ parse_args:
         call swtail
         mov  byte [o_reset], 1
         jmp  .loop
-.t:                                   ; /T[ONE]
-        call swtail
-        mov  byte [o_tone], 1
-        jmp  .loop
 .f:                                   ; /F[ORCE]
         call swtail
         mov  byte [o_force], 1
@@ -3627,6 +3609,10 @@ parse_args:
         mov  [o_wseg], dx
         mov  byte [o_wgiven], 1
         jmp  .loop
+.help:                                ; /? - print the pane, touch nothing
+        mov  si, m_help
+        call prstr
+        int  20h
 .unk2:
         dec  si
 .unknown:
@@ -3908,6 +3894,19 @@ m_badirq:  db 'Bad /I: this card can use IRQ 5, 7, 9, 10, 11 or 12 (or 0 ='
 m_fneeds:  db '/FORCE needs /S=n : name the socket to configure without'
            db ' the CIS check.',13,10,0
 m_ignsw:   db 'Ignoring unknown switch: ',0
+m_help:    db 'Usage: SCP55GO [switches]',13,10
+           db '  /PCIC /CS /OB  host backend (default: auto-detect CS > SS > PCIC)',13,10
+           db '  /MPU=hex   MPU-401 base: 330 (default), 370, 3B0, 3F0; codec at base+8',13,10
+           db '  /I=dec     IRQ 5 (default), 7, 9, 10, 11, 12; 0 = none',13,10
+           db '  /LINE[=n]  line-in pass-through, gain 0..8 (bare /LINE = 8 = max +12 dB)',13,10
+           db '  /RESET     send the standard Roland GS Reset SysEx',13,10
+           db '  /MT32      MT-32 emulation via MT32EMUL.MID in the current directory',13,10
+           db '  /MIDI=f    fire a Standard MIDI File once (synth setup files)',13,10
+           db '  /SYSEX=h   send raw MIDI/SysEx hex bytes (non-hex chars ignored)',13,10
+           db '  /S=dec     socket (PCIC 0-7, OB 1-2; CS: probe only this socket)',13,10
+           db '  /W=hex     attr-window segment for CIS/COR (PCIC, default D000)',13,10
+           db '  /FORCE     configure without the CIS identity check (needs /S)',13,10
+           db '  /OFF       power the socket down (PCIC) / release + dormant (CS)',13,10,0
 m_crlf:    db 13,10,0
 m_novers:  db 'unreadable',0
 ; ---- summary block ----
@@ -3936,7 +3935,6 @@ m_lineok:  db '   line-in pass-through ON (gain ',0
 m_lineno:  db '   line-in requested but NOT confirmed (gain ',0
 m_line8:   db '/8)',13,10,0
 m_gsreset: db '   Sound Canvas: GS reset sent',13,10,0
-m_toned:   db '   TEST: MIDI note sent',13,10,0
 m_mpudown: db '   (MPU-401 not ready - MIDI send skipped)',13,10,0
 m_sent1:   db '   Sound Canvas: sent ',0
 m_mt32tag: db ' (MT-32 mode)',0
@@ -3949,6 +3947,7 @@ m_syx2:    db '-byte SysEx',13,10,0
 ; ---- socket verdicts (PCIC + OB) ----
 m_socket:  db 'Socket ',0
 m_nocards: db ': no card present/ready.',13,10,0
+m_nomanf:  db ': card present, but its CIS has no MANFID tuple.',13,10,0
 m_indrive: db ': in use by the system (drive window) - refused.',13,10,0
 m_unrec:   db ': unrecognized card - ',0
 m_addman:  db '  Use /F to force, if you are sure.',13,10,0
