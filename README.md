@@ -1,4 +1,4 @@
-# SCP55GO — DOS enablers for the Roland SCP-55 PCMCIA sound card
+# SCP55GO — DOS enabler for the Roland SCP-55 PCMCIA sound card
 
 Single-command DOS enablers that bring the **Roland SCP-55** PC Card to life —
 with its onboard **Sound Canvas** module, playable as a General MIDI / MPU-401
