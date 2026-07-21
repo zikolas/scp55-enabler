@@ -3,3 +3,5 @@
 *.bak
 *.BAK
 .DS_Store
+# legacy GSGO.EXE is built from legacy/GSGO.C, not committed
+legacy/GSGO.EXE

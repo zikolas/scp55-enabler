@@ -6,8 +6,9 @@ device. Two tools, one repo:
 
 - **SCP55GO** (`SCP55GO.COM`, assembly) — the current enabler: **three host
   backends in one 11 KB .COM**, auto-detected at run time.
-- **GSGO** (`GSGO.EXE`, C) — the original 82365 point enabler this project
-  started with; simpler, single-backend, kept as the readable reference.
+- **GSGO** (`legacy/GSGO.C`, C) — the original 82365 point enabler this
+  project started with; simpler, single-backend, kept in [`legacy/`](legacy/)
+  as the readable reference.
 
 ## SCP55GO
 
@@ -102,11 +103,12 @@ none of that.
 
 ## GSGO — the original C enabler
 
-`GSGO.EXE` is where this project started: a **point enabler** for Intel
-82365-class controllers only, in one readable C file. It takes the same
-mode-control switches (`/MT32`, `/MIDI`, `/SYSEX`, `/RESET`, `/LINE`) and
-remains fully functional — if your machine has a plain 82365-class controller
-and you want the simplest tool (or want to read how the card works), use GSGO:
+[`legacy/GSGO.C`](legacy/GSGO.C) is where this project started: a **point
+enabler** for Intel 82365-class controllers only, in one readable C file. It
+takes the same mode-control switches (`/MT32`, `/MIDI`, `/SYSEX`, `/RESET`,
+`/LINE`) and remains fully functional — if your machine has a plain
+82365-class controller and you want the simplest tool (or want to read how
+the card works), build it from [`legacy/`](legacy/) and run:
 
 ```
 GSGO [/MPU=330] [/I=5] [/MT32] [/MIDI=file] [/SYSEX=hex] [/RESET]
@@ -149,20 +151,22 @@ yyzkevin** — none of it happens without COMrade.
 ## Building
 
 **SCP55GO** is a NASM flat binary — one line, on a modern host or on the DOS
-box itself:
+box itself, and the prebuilt `SCP55GO.COM` is committed:
 
 ```
 nasm -f bin SCP55GO.ASM -o SCP55GO.COM
 ```
 
-**GSGO** builds with **Open Watcom 1.9** (16-bit, real mode):
+**GSGO** (in [`legacy/`](legacy/)) builds with **Open Watcom 1.9** (16-bit,
+real mode) via `legacy/BUILD.BAT`, or directly:
 
 ```
 wcc -ms GSGO.C -fo=GSGO.obj
 wlink system dos name GSGO.exe file GSGO.obj
 ```
 
-Both binaries are included prebuilt.
+The compiled `GSGO.EXE` is not committed — build it from the source in
+`legacy/`.
 
 ### Clean-room note
 
