@@ -1,5 +1,5 @@
 ;==========================================================================
-;  SCP55GO 2.0 - unified clean-room DOS enabler for the Roland SCP-55 PCMCIA
+;  SCP55GO 2.1 - unified clean-room DOS enabler for the Roland SCP-55 PCMCIA
 ;             sound card (onboard GS Sound Canvas synth behind an MPU-401
 ;             UART + a Crystal CS4231A WSS codec), three host backends in
 ;             one .COM:
@@ -83,10 +83,11 @@ MODE_PCIC equ 3
 ; blocks BY OFFSET between two runs of the same binary, so bump this on
 ; EVERY release - offsets shift with any rebuild, and a mismatched resident
 ; copy must be refused (reboot to replace), never driven.
-SGVER   equ 0200h
+SGVER   equ 0201h
 
 TDMAX   equ 40h                       ; CS tuple-data buffer size
 VBMAX   equ 40h                       ; VERS_1 capture buffer size
+SETTLEP equ 250                       ; CIS settle gate cap: 250 x 20ms = ~5s
 CISLEN  equ 1024                      ; dense CIS bytes pulled per probe.
                                       ; Generous on purpose: the SCP-55 packs
                                       ; ~20 CFTABLE_ENTRY tuples BEFORE its
@@ -1895,6 +1896,7 @@ ob_try:
         xor  di, di
         call ob_ssvc
         jc   .no
+        call cis_settle               ; data-gate: READY is not enough
         call cis_even                 ; pull the even bytes
         call cis_parse                ; CF ignored: defaults hold
         call identify
@@ -2523,6 +2525,7 @@ pc_probe:
         call pc_wr
         mov  ax, 20
         call ms_delay
+        call cis_settle               ; data-gate: READY is not enough
         call cis_even
         call cis_parse                ; CF ignored: cfgbase stays 400h
         call identify
@@ -2695,6 +2698,97 @@ mw_overlap:
 ;==========================================================================
 ;  SHARED CIS PLUMBING  (transient: PCIC + OB probe paths)
 ;==========================================================================
+; ---- cis_settle: gate the CIS read on the DATA, not on delays or READY.
+;      Attribute memory lags socket power by a HOST-specific time (PC110
+;      ~30ms, ThinkPad 235 ~110ms measured), and the READY bit can assert
+;      well BEFORE the CIS reads true (235: ~55ms) - a too-early read
+;      returns an all-FF wall for ANY card, so a healthy card is reported
+;      as unknown (or the socket as empty) and the enabler refuses to
+;      configure it.  See ~/Projects/pcmcia-cis-ff-bug.md.  Until now this
+;      enabler was safe only by ~200ms of accumulated fixed delay, with
+;      nothing verifying that on a slower host or card - measured on the
+;      235, an ES1688GO built the same way had only ~90-110ms to spare.
+; Two-clause gate: un-settled reads are all-FF on some hosts (235 cold
+; power) but UNSTABLE NON-FF GARBAGE on others (PC110 after a power
+; cycle) - so require byte0 != FF AND dense bytes 0-3 identical across
+; two reads 20ms apart, capped at ~5s.  Silent and free on a settled
+; socket (exits on the first pass); prints one line only when the socket
+; actually made us wait, which is worth knowing about that host.
+cis_settle:
+        push ax
+        push bx
+        push cx
+        push dx
+        push si
+        push di
+        push es
+        mov  word [settlen], 0
+        mov  es, [o_wseg]
+        mov  cx, SETTLEP
+        call .snap                    ; DX:BX = dense bytes 0-3
+        mov  ax, dx
+        mov  di, bx                   ; previous snapshot in AX:DI
+.w:
+        push ax
+        mov  ax, 20
+        call ms_delay
+        pop  ax
+        push ax
+        push di
+        call .snap
+        pop  di
+        pop  ax
+        cmp  bl, 0FFh                 ; clause 1: byte0 != FF
+        je   .miss
+        cmp  ax, dx                   ; clause 2: stable vs previous
+        jne  .miss
+        cmp  di, bx
+        je   .ok
+.miss:
+        inc  word [settlen]
+        mov  ax, dx                   ; roll the snapshot forward
+        mov  di, bx
+        loop .w
+.ok:
+        cmp  word [settlen], 0
+        je   .quiet
+        call .report
+.quiet:
+        pop  es
+        pop  di
+        pop  si
+        pop  dx
+        pop  cx
+        pop  bx
+        pop  ax
+        ret
+.snap:                                ; dense 0..3 (even host offsets)
+        mov  bl, [es:0]
+        mov  bh, [es:2]
+        mov  dl, [es:4]
+        mov  dh, [es:6]
+        ret
+.report:
+        mov  ax, [settlen]
+        cmp  ax, SETTLEP
+        jb   .slow
+        mov  si, m_nosettle           ; never settled: the read is suspect
+        call prstr
+        ret
+.slow:
+        mov  si, m_settle
+        call prstr
+        cmp  ax, 100
+        jb   .n
+        mov  si, m_settlot            ; >=2s: past prdec99's range
+        call prstr
+        ret
+.n:
+        call prdec99
+        mov  si, m_settle2
+        call prstr
+        ret
+
 ; cis_even: copy CISLEN even host bytes from [o_wseg]:0 into cisbuf.
 ; (Attribute memory only implements even card addresses.)
 cis_even:
@@ -3881,7 +3975,12 @@ errout:                               ; SI = message; print + exit
 ;==========================================================================
 ;  MESSAGES
 ;==========================================================================
-m_banner:  db 'SCP55GO 2.0 - Roland SCP-55 GS Sound Canvas enabler (PCIC/CS/OB)',13,10,0
+m_banner:  db 'SCP55GO 2.1 - Roland SCP-55 GS Sound Canvas enabler (PCIC/CS/OB)',13,10,0
+m_settle:  db 'Socket is slow: CIS settled after ',0
+m_settle2: db ' x 20ms.',13,10,0
+m_settlot: db '2s or more.',13,10,0
+m_nosettle: db 'WARNING: CIS never settled (~5s) - an all-FF read here is NOT',13,10
+           db '  proof of a blank card; see pcmcia-cis-ff-bug.md.',13,10,0
 m_hostcs:  db 'Host: PCMCIA Card Services',13,10,0
 m_hostob:  db 'Host: Socket Services (OmniBook)',13,10,0
 m_hostpc:  db 'Host: 82365-class PCIC (direct)',13,10,0
@@ -4061,6 +4160,7 @@ p_s14:     db 0
 p_s15:     db 0
 pw_pg:     dw 0
 pw_pg2:    dw 0
+settlen:   dw 0                       ; 20ms polls the CIS settle gate took
 mw_seg:    dw 0
 mw_cs:     dw 0
 mw_ce:     dw 0
