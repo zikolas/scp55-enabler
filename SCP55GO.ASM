@@ -15,7 +15,7 @@
 ;  CS arbiter is loaded we must go through it), then the 'SS' Socket
 ;  Services signature (OmniBook ROM), then an 82365 probe at 3E0h.
 ;
-;  THE CARD (from its own CIS + live probing - see the repo's CIS.txt):
+;  THE CARD (from its own CIS + live probing):
 ;    MANFID C00C/0001, VERS_1 "Roland" "PCMCIA Sound Card".
 ;    Config registers at attribute 400h (COR + CCSR).  The COR index picks
 ;    the I/O base:  idx 1 = 330h (default)   idx 2 = 370h
