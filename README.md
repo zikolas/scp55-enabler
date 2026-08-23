@@ -209,3 +209,38 @@ controller and sound-chip registers directly on 30-year-old hardware:
   software, or sanity. You run it entirely at your own risk.
 - It's only been exercised on the hardware named above; elsewhere, your mileage may
   vary.
+
+## Digital audio
+
+The card does DMA-less digital audio through the CS4231A's own PIO engine, at
+every rate from 5.5 kHz to 44.1 kHz, mono or stereo, 8- or 16-bit. No DMA is
+involved anywhere — the PCMCIA socket does not route it and the card does not
+declare it.
+
+The reason this took a long time to find is that **the codec's registers are not
+where the datasheet's addressing implies**. R0/R1 are at `base+8`/`base+9` as
+expected, but R2 and R3 are at **`base+6` and `base+7`** — not `base+2`/`base+3`.
+Writing PCM to `base+3` puts it nowhere, and the status register read there never
+reports the playback-ready flag, which is exactly what made earlier attempts
+conclude the hardware couldn't do it.
+
+The working sequence, all of it verified on hardware:
+
+    MODE 2                    I12 |= 0x40
+    format + PIO (under MCE)  I8 = rate, I9 = 0xC8   (PPIO | CPIO)
+    mixer                     I0/I1 = C0, I2/I3 = 0A, I6/I7 = 03, I26 = C0
+    timer                     I21 = 00, I20 = 42, then I16 = 0xC0 (OLB | TE)
+    enable playback           I9 |= 0x01  ->  0xC9
+    feed                      read base+6; on PRDY (bit 1), write one byte
+                              to base+7.  Underrun arrives as SER (bit 4)
+                              in the same read.
+
+The card populates a single 16.9344 MHz crystal on XI1, so selecting `C2SL = 0`
+yields the rate column the datasheet lists for XTAL2: 5512, 11025, 18900, 22050,
+37800, 44100, 33075, 6620 Hz. There is no second crystal, and selecting one
+hangs the codec's resync until the socket is power-cycled.
+
+For sustained playback, pace the feed from a periodic interrupt rather than
+spin-polling. The playback FIFO is 16 samples, which at 22.05 kHz is only about
+0.7 ms, so it needs servicing faster than ~1400 Hz. `probes/SCPPUMP.C` is a
+worked example.

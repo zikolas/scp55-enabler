@@ -5,3 +5,10 @@
 .DS_Store
 # legacy GSGO.EXE is built from legacy/GSGO.C, not committed
 legacy/GSGO.EXE
+
+# probe binaries are cross-built from source by probes/build-dos.sh
+probes/*.EXE
+win/*.VXD
+win/*.EXE
+win/*.obj*
+win/dist/
