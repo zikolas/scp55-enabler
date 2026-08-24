@@ -62,6 +62,30 @@ additions cross-build from a host with `./build-dos.sh <name>` (Open Watcom,
 - **MKWAV.C** — writes a long test tone on the box, so playback can be caught
   mid-stream without pushing a large file over the serial link.
 
+## Interrupt routing
+
+- **SCPIRQ.C** — answers "can we pump off the card's IRQ instead of the RTC?"
+  and does it in three phases, because "no interrupts" has several causes that
+  look identical from the outside. **A**: program the CS4231A's own timer with
+  interrupts disabled and poll `I24` for TI, proving the timer runs without
+  involving the PIC. **B**: hook the vector, unmask the PIC, set IEN, count ISR
+  entries — and separately watch `R2` D0 to see whether the codec drives its
+  `/INT` pin at all. **C**: the same question aimed at the MPU-401, whose ACK
+  byte raises IREQ# with no enable register. It also reads back the ExCA
+  registers, so a bridge that refuses the IRQ nibble can be told apart from a
+  card that never drives it.
+
+  **Result on the T2130CT (2026-08-24):** the timer rolls over, the codec
+  asserts INT (`R2`=CD), the bridge latches IRQ 5 (`intgen`=75, I/O mode, reset
+  released) — and nothing arrives. The MPU-401's ACK on the *same* IRQ, socket
+  and bridge state *does* arrive. So **the SCP-55 wires IREQ# to the MPU-401
+  UART, not to the codec.** There is no card interrupt to pace digital audio
+  from; the RTC stays. This also explains the Windows driver's captured state
+  (`I16`=C0, `I20`=42, `I24`=40 with TI *set and uncleared*): Roland used the
+  codec timer as a **polled** reference, not an interrupt source, and the
+  Win95 INF agrees — one `IRQConfig=5` for the whole card and `DMAConfig=`
+  empty. Untested on other CS4231A cards, which may bond `/INT` differently.
+
 ## Notes for anyone reading the code
 
 Two measurement rules the hard way, both of which produced false conclusions here:
