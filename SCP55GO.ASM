@@ -2443,7 +2443,7 @@ pc_probe:
         cmp  byte [p_wason], 0
         jne  .waspow
         mov  al, 02h                  ; power up
-        mov  ah, 95h
+        mov  ah, 0B0h
         call pc_wr
         ; Poll power-good rather than a fixed wait: the 82365SL asserts it
         ; near instantly, but CardBus-era bridges ramp Vcc through a soft
