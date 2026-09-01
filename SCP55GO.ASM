@@ -1,5 +1,5 @@
 ;==========================================================================
-;  SCP55GO 2.1 - unified clean-room DOS enabler for the Roland SCP-55 PCMCIA
+;  SCP55GO 2.2 - unified clean-room DOS enabler for the Roland SCP-55 PCMCIA
 ;             sound card (onboard GS Sound Canvas synth behind an MPU-401
 ;             UART + a Crystal CS4231A WSS codec), three host backends in
 ;             one .COM:
@@ -3975,7 +3975,7 @@ errout:                               ; SI = message; print + exit
 ;==========================================================================
 ;  MESSAGES
 ;==========================================================================
-m_banner:  db 'SCP55GO 2.1 - Roland SCP-55 GS Sound Canvas enabler (PCIC/CS/OB)',13,10,0
+m_banner:  db 'SCP55GO 2.2 - Roland SCP-55 GS Sound Canvas enabler (PCIC/CS/OB)',13,10,0
 m_settle:  db 'Socket is slow: CIS settled after ',0
 m_settle2: db ' x 20ms.',13,10,0
 m_settlot: db '2s or more.',13,10,0
