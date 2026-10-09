@@ -22,7 +22,17 @@ One binary, three ways onto the bus:
 
 With no mode switch the host is auto-detected: Card Services first (if a CS
 arbiter is loaded we must go through it), then the OmniBook Socket Services
-signature, then an 82365 probe at `3E0h`. The only pre-existing
+signature, then an 82365 probe at `3E0h`.
+
+On the OmniBook, the ROM runs the card in the C: drive slot in either memory
+mode or I/O mode, depending on the card. The HP and SanDisk SDP5 flash cards
+run in memory mode; a 128 MB ATA card ran in I/O mode. The SCP-55 needs the
+C: drive slot in memory mode. It is an 8-bit card, and with the C: card in
+16-bit I/O mode the adapter reaches only its even-numbered registers: the
+card enables, but the MPU status (`331h`) and codec data (`339h`) ports
+float, so it gives no MIDI and no sound.
+
+The only pre-existing
 no-Card-Services setup for this card is specific to the **HP 200LX**; these
 enablers aren't tied to one machine.
 
